@@ -1,0 +1,262 @@
+PROYECTO RAUL - INSTRUCCIONES DE EJECUCION
+Robot Autonomo Uruguayo Ligero (RAUL)
+UTEC - Tecnologias de Control y Robotica - 2026
+
+OBJETIVO
+Reproducir la simulacion del buggy en el laboratorio, verificar el LiDAR y
+la odometria, calcular la ruta BFS y ejecutar el recorrido autonomo compuesto
+por un pasillo recto y dos maniobras curvas aprendidas.
+
+IMPORTANTE
+Estos pasos se prepararon a partir de los archivos entregados por el equipo.
+El recorrido se probo en el equipo original con ROS 2 Lyrical y Gazebo Sim.
+En otra PC puede ser necesario ajustar instalaciones, rutas y dependencias.
+No debe confundirse la ruta calculada con BFS con las dos curvas grabadas:
+el recorrido integrado usa sus propios CSV aprendidos.
+
+1. REQUISITOS
+
+- Ubuntu con ROS 2 Lyrical instalado en /opt/ros/lyrical.
+- Gazebo Sim y los paquetes ros_gz_sim y ros_gz_bridge compatibles.
+- Python 3, rclpy, nav_msgs, sensor_msgs, colcon y unzip.
+- Para el planificador BFS: numpy y matplotlib.
+- Archivos del proyecto indicados abajo.
+
+Verificar las instalaciones (en Ubuntu):
+
+    ls /opt/ros/lyrical/setup.bash
+    gz sim --version
+    source /opt/ros/lyrical/setup.bash
+    ros2 pkg prefix ros_gz_sim
+    ros2 pkg prefix ros_gz_bridge
+
+Si alguno de estos comandos falla, instalar la dependencia correspondiente
+antes de continuar. Las instrucciones presuponen que ROS y Gazebo ya estan
+instalados y funcionan en esa PC.
+
+2. ARCHIVOS NECESARIOS
+
+Colocar en una misma carpeta de descarga los siguientes archivos:
+
+    recorrido_completo_buggy.py
+    control_buggy.py
+    resolver_laberinto_bfs.py
+    seguir_bfs.py
+    extraer_curva.py
+    ruta_curva_aprendida.csv
+    ruta_salida_aprendida.csv
+    ruta_bfs.csv
+    lidar_world.sdf
+    buggy_con_odom.urdf
+    ros2_ws_src_buggy_description.zip
+    ros2_ws_models_mapa_lab.zip
+
+NOTA: el repositorio puede tener los archivos en subcarpetas; lo importante
+es reunirlos para realizar la preparacion indicada en el punto siguiente.
+Los ZIP contienen las mallas y configuraciones que necesita Gazebo.
+
+3. PREPARAR EL ESPACIO DE TRABAJO
+
+Abrir una terminal en la carpeta que contiene los archivos de la lista
+anterior. Desde esa carpeta ejecutar:
+
+    source /opt/ros/lyrical/setup.bash
+    mkdir -p ~/ros2_ws/src/buggy_description
+    mkdir -p ~/ros2_ws/models/mapa_lab
+
+    unzip -o ros2_ws_src_buggy_description.zip -d ~/ros2_ws/src/buggy_description
+    unzip -o ros2_ws_models_mapa_lab.zip -d ~/ros2_ws/models/mapa_lab
+
+    cp recorrido_completo_buggy.py control_buggy.py ~/ros2_ws/
+    cp resolver_laberinto_bfs.py seguir_bfs.py extraer_curva.py ~/ros2_ws/
+    cp ruta_curva_aprendida.csv ruta_salida_aprendida.csv ruta_bfs.csv ~/ros2_ws/
+    cp lidar_world.sdf buggy_con_odom.urdf ~/ros2_ws/
+
+MUY IMPORTANTE: el ZIP de buggy_description trae una version anterior del
+URDF que no publica el topico de odometria necesario para el recorrido.
+Por eso hay que usar buggy_con_odom.urdf como modelo activo:
+
+    cp ~/ros2_ws/buggy_con_odom.urdf \
+       ~/ros2_ws/src/buggy_description/urdf/buggy_rplidar_a1.urdf
+
+Compilar y activar el paquete:
+
+    cd ~/ros2_ws
+    colcon build --packages-select buggy_description
+    source ~/ros2_ws/install/setup.bash
+
+Comprobar que existan estos archivos:
+
+    ls ~/ros2_ws/models/mapa_lab/meshes/mapa_lab.obj
+    ls ~/ros2_ws/src/buggy_description/meshes/
+    ls ~/ros2_ws/ruta_curva_aprendida.csv
+    ls ~/ros2_ws/ruta_salida_aprendida.csv
+
+4. INICIAR EL ENTORNO EN GAZEBO
+
+ABRIR TERMINAL 1 y dejarla abierta:
+
+    source /opt/ros/lyrical/setup.bash
+    source ~/ros2_ws/install/setup.bash
+    export GZ_SIM_RESOURCE_PATH="$HOME/ros2_ws/models:$(ros2 pkg prefix buggy_description)/share:${GZ_SIM_RESOURCE_PATH}"
+    gz sim -r ~/ros2_ws/lidar_world.sdf
+
+Debe aparecer el mapa del laboratorio. No cerrar esta terminal.
+El mundo se llama "empty" y no carga el buggy por si solo.
+
+5. INCORPORAR EL BUGGY A GAZEBO
+
+ABRIR TERMINAL 2:
+
+    source /opt/ros/lyrical/setup.bash
+    source ~/ros2_ws/install/setup.bash
+    export GZ_SIM_RESOURCE_PATH="$HOME/ros2_ws/models:$(ros2 pkg prefix buggy_description)/share:${GZ_SIM_RESOURCE_PATH}"
+
+    ros2 run ros_gz_sim create \
+      -world empty \
+      -file "$(ros2 pkg prefix buggy_description)/share/buggy_description/urdf/buggy_rplidar_a1.urdf" \
+      -name buggy -z 0.3
+
+Esperar a que aparezca el vehiculo y se apoye en el suelo.
+Si ya existe un modelo llamado "buggy", NO volver a insertarlo.
+Se puede comprobar su posicion con:
+
+    gz model -m buggy --pose
+
+6. COMUNICAR GAZEBO CON ROS 2
+
+ABRIR TERMINAL 3 y dejarla abierta:
+
+    source /opt/ros/lyrical/setup.bash
+    source ~/ros2_ws/install/setup.bash
+
+    ros2 run ros_gz_bridge parameter_bridge \
+      '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan' \
+      '/model/buggy/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry'
+
+Este puente transfiere desde Gazebo hacia ROS 2 los datos del LiDAR
+(/scan) y de odometria (/model/buggy/odometry).
+
+ABRIR TERMINAL 4 para comprobar:
+
+    source /opt/ros/lyrical/setup.bash
+    source ~/ros2_ws/install/setup.bash
+    ros2 topic list
+    ros2 topic hz /scan
+
+La odometria tambien se puede comprobar con:
+
+    ros2 topic hz /model/buggy/odometry
+
+Se deben recibir mensajes de ambos topicos antes de ejecutar el recorrido.
+
+7. COLOCAR EL BUGGY EN LA POSICION INICIAL
+
+En TERMINAL 4:
+
+    python3 ~/ros2_ws/recorrido_completo_buggy.py --colocar
+
+Esto posiciona el buggy al inicio del recorrido completo, sin iniciar
+el movimiento. Comprobar visualmente la posicion en Gazebo.
+
+Para repetir la prueba desde el comienzo, volver a ejecutar --colocar.
+Es necesario que Gazebo este corriendo y que el modelo buggy exista.
+
+8. EJECUTAR EL RECORRIDO COMPLETO
+
+En TERMINAL 4:
+
+    python3 ~/ros2_ws/recorrido_completo_buggy.py --ejecutar
+
+El programa realiza estas etapas en forma continua:
+
+    1) Primer pasillo recto.
+    2) Primera curva en S.
+    3) Segunda curva y salida.
+
+Se utilizan las trayectorias ruta_curva_aprendida.csv y
+ruta_salida_aprendida.csv, la odometria y el LiDAR. En esta version el
+controlador pasa de una etapa a la siguiente sin introducir una pausa
+explicita de 0,75 segundos. La parada normal se realiza al terminar.
+
+Umbral LiDAR predeterminado en este programa: 0.22 metros.
+
+Se genera un archivo de registro, por ejemplo:
+
+    ~/ros2_ws/registro_recorrido_completo_YYYYMMDD_HHMMSS.csv
+
+Para detener manualmente, pulsar Ctrl+C en la terminal del programa.
+Comprobar que las ruedas y el manubrio queden detenidos en Gazebo.
+
+9. OTRAS PRUEBAS DISPONIBLES (OPCIONALES)
+
+9.1 Control manual, sin ejecutar al mismo tiempo el control automatico:
+
+    python3 ~/ros2_ws/control_buggy.py
+
+Comandos del controlador: W avanzar, S retroceder, A/D direccion,
+C centrar, X detener y Q salir.
+
+9.2 Calculo de ruta BFS desde el mapa del laboratorio:
+
+    python3 ~/ros2_ws/resolver_laberinto_bfs.py
+
+Se abre un grafico para seleccionar con el mouse el INICIO y la META.
+El programa guarda mapa_bfs.png y ruta_bfs.csv en ~/ros2_ws/.
+La ruta BFS en cuadricula sirve para la planificacion. Las maniobras
+curvas del recorrido integrado fueron obtenidas de trayectorias grabadas.
+
+9.3 Prueba del primer tramo de la ruta BFS (no ejecutar junto al
+recorrido completo):
+
+    python3 ~/ros2_ws/seguir_bfs.py --metros 0.5
+
+La opcion --metros establece la longitud solicitada. Verificar que el
+buggy se encuentre correctamente orientado antes de comenzar.
+
+9.4 Recuperar datos de una grabacion manual con extraer_curva.py:
+
+    python3 ~/ros2_ws/extraer_curva.py
+
+Antes, abrir el archivo y revisar las variables BAG, X_INICIO, Y_INICIO
+y YAW_INICIO. BAG apunta inicialmente a una grabacion especifica, que
+no necesariamente estara incluida en el repositorio. Para usar esta
+opcion deben proporcionarse los archivos originales de rosbag.
+
+10. VISUALIZAR LOS PUNTOS DEL LIDAR EN GAZEBO
+
+En Gazebo, abrir el complemento "Visualize lidar" si esta disponible.
+Seleccionar el topico /scan, activar "Display Lidar Visual" y elegir
+el tipo "Points". Los puntos mostrados son las detecciones del LiDAR.
+No es necesario usar RViz para esta demostracion.
+
+11. PROBLEMAS FRECUENTES
+
+- No aparece el mapa: comprobar GZ_SIM_RESOURCE_PATH y que exista
+  ~/ros2_ws/models/mapa_lab/model.sdf y meshes/mapa_lab.obj.
+- No se ve el buggy: comprobar que las mallas STL esten instaladas en
+  buggy_description/meshes y que el modelo se haya insertado.
+- No llegan /scan o /model/buggy/odometry: revisar el puente de la
+  terminal 3 y comprobar que Gazebo no este pausado.
+- No hay odometria: comprobar que se copio buggy_con_odom.urdf sobre
+  urdf/buggy_rplidar_a1.urdf ANTES de compilar el paquete.
+- ERROR de CSV: los archivos ruta_curva_aprendida.csv y
+  ruta_salida_aprendida.csv deben existir directamente en ~/ros2_ws/.
+- Los paquetes o comandos no aparecen: repetir en esa terminal
+  source /opt/ros/lyrical/setup.bash y source ~/ros2_ws/install/setup.bash.
+- Ya hay un buggy en Gazebo: no ejecutar nuevamente el comando create.
+  Usar --colocar para comenzar otra prueba desde cero.
+- Gazebo muestra advertencias sobre gz_frame_id: en las pruebas del equipo
+  aparecieron advertencias de compatibilidad SDF; verificar los topicos
+  y la simulacion antes de concluir que son errores fatales.
+
+12. FINALIZAR
+
+Al terminar, detener el programa de navegacion con Ctrl+C si sigue
+activo. Luego detener el puente y Gazebo desde sus respectivas
+terminales. Los CSV de registro quedan guardados en ~/ros2_ws/.
+
+NOTA FINAL
+Este documento registra el procedimiento de ejecucion usado como base
+para el proyecto. La reproduccion en otros equipos depende de tener
+instaladas versiones compatibles de ROS 2, Gazebo y sus dependencias.
