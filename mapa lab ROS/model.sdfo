@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<sdf version="1.10">
+
+  <model name="mapa_lab">
+
+    <!-- Laberinto fijo -->
+    <static>true</static>
+
+    <link name="laberinto">
+
+      <!-- Modelo visual -->
+      <visual name="visual">
+
+        <geometry>
+          <mesh>
+            <uri>model://mapa_lab/meshes/mapa_lab.obj</uri>
+
+            <!-- Convertir milimetros a metros -->
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+
+        <material>
+          <ambient>0.7 0.7 0.7 1</ambient>
+          <diffuse>0.8 0.8 0.8 1</diffuse>
+        </material>
+
+      </visual>
+
+      <!-- Colisiones con las paredes -->
+      <collision name="collision">
+
+        <geometry>
+          <mesh>
+            <uri>model://mapa_lab/meshes/mapa_lab.obj</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+
+      </collision>
+
+    </link>
+
+  </model>
+
+</sdf>
